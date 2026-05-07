@@ -1,8 +1,8 @@
 # Feature Specification: Mua vé & Quản lý vé (Ticket Purchase & Management)
 
-**Feature Branch**: `001-ticket-purchase-management`  
-**Created**: 2026-05-06  
-**Status**: Draft  
+**Feature Branch**: `001-ticket-purchase-management`
+**Created**: 2026-05-06
+**Status**: Draft
 **Input**: User description: "Chức năng mua vé và quản lý vé cho hệ thống Hà Nội 360 Phase 2 — bao gồm hệ thống loại vé, luồng đặt vé trên App, thanh toán, sau đặt vé, và quản lý vé trên CMS"
 
 ## Clarifications
@@ -159,6 +159,10 @@ Nhân viên/admin xem dashboard tổng quan về doanh thu bán vé, tỷ lệ l
 - Nếu khách hủy vé combo gồm nhiều loại vé thành phần? Hủy toàn bộ combo, không hủy từng phần.
 - Nếu nhân viên quét QR tại nơi không có mạng? Cần cơ chế cache offline cho check-in hoặc yêu cầu kết nối mạng.
 - Nếu khách mua vé cho ngày hôm nay nhưng slot sáng đã qua? Chỉ hiển thị các slot chưa qua thời gian hiện tại.
+- **[Capacity overbook]** Nếu slot có capacity > 1 và nhiều khách cùng vượt qua bước kiểm tra capacity rồi cùng hold? Cơ chế hold phải dùng atomic counter (không phải per-user lock) để đảm bảo tổng số hold không vượt quá capacity.
+- **[Webhook muộn]** Nếu khách bắt đầu thanh toán sát hạn 15 phút, TTL hết trước khi payment gateway callback về? Hệ thống phải phát hiện trường hợp này và hoàn tiền ngay, không để booking ở trạng thái mâu thuẫn (tiền đã trừ nhưng booking EXPIRED).
+- **[Phantom hold]** Nếu hệ thống đã trừ capacity trong Redis nhưng INSERT booking vào DB thất bại? Capacity phải được khôi phục ngay (compensating operation) để không mất slot "ảo".
+- **[Auto-release conflict]** Nếu Redis TTL expire event kích hoạt sau khi booking đã được CONFIRMED? Handler auto-release phải kiểm tra trạng thái hiện tại của booking trước khi cập nhật — bỏ qua nếu đã CONFIRMED.
 
 ## Requirements *(mandatory)*
 
@@ -179,14 +183,18 @@ Nhân viên/admin xem dashboard tổng quan về doanh thu bán vé, tỷ lệ l
 - **FR-008**: Khách PHẢI có thể chọn loại vé và nhập số lượng theo nhiều đối tượng trong cùng một đơn (ví dụ: 2 người lớn + 1 trẻ em)
 - **FR-009**: Khách PHẢI nhập thông tin người đặt gồm: họ tên, số điện thoại, email
 - **FR-009a**: App đặt vé PHẢI hỗ trợ 2 ngôn ngữ: Tiếng Việt và Tiếng Anh. Nội dung loại vé, thông báo, email vé QR đều cần có bản song ngữ
-- **FR-010**: Hệ thống PHẢI giữ slot (hold) trong 15 phút khi khách đang thanh toán; tự động giải phóng nếu hết thời gian
+- **FR-010**: Hệ thống PHẢI giữ slot (hold) trong 15 phút khi khách đang thanh toán; tự động giải phóng nếu hết thời gian. Việc giữ slot phải dùng cơ chế atomic counter để đảm bảo tổng số hold active không vượt quá capacity — không dùng per-user lock vì không kiểm soát được tổng số lượng
+- **FR-010a**: Hệ thống PHẢI xóa hold record ngay khi đơn chuyển sang CONFIRMED, và handler auto-release PHẢI kiểm tra trạng thái booking trước khi cập nhật để tránh ghi đè dữ liệu đơn hợp lệ
+- **FR-010b**: Nếu thao tác tạo booking trong DB thất bại sau khi đã giảm capacity, hệ thống PHẢI khôi phục capacity ngay lập tức (compensating operation)
 - **FR-011**: Khách CÓ THỂ nhập mã voucher/giảm giá trước khi thanh toán; hệ thống xác thực realtime và hiển thị số tiền tiết kiệm
 
 **Thanh toán**
 
 - **FR-012**: Hệ thống PHẢI tích hợp thanh toán qua VNPay
 - **FR-013**: Hệ thống PHẢI tích hợp thanh toán qua Momo
-- **FR-014**: Hệ thống PHẢI xử lý callback thanh toán (thành công/thất bại) và cập nhật trạng thái đơn vé tương ứng
+- **FR-014**: Hệ thống PHẢI xử lý callback thanh toán (thành công/thất bại) và cập nhật trạng thái đơn vé tương ứng. Webhook processor PHẢI dùng idempotency key để chống duplicate callback từ payment gateway
+- **FR-014a**: Nếu callback SUCCESS đến sau khi booking đã EXPIRED (TTL hết trước khi gateway trả về), hệ thống PHẢI từ chối confirm và kích hoạt hoàn tiền tự động ngay — không để trạng thái mâu thuẫn giữa giao dịch tài chính và trạng thái đơn
+- **FR-014b**: Hệ thống PHẢI gia hạn thời gian hold (reset TTL) khi khách bấm xác nhận thanh toán và được redirect sang payment gateway, để tránh race condition giữa TTL expire và thời gian gateway xử lý
 - **FR-015**: Hệ thống PHẢI có cơ chế đối soát (reconciliation) cho trường hợp callback bị lỗi
 
 **Sau đặt vé (App)**
@@ -243,3 +251,38 @@ Nhân viên/admin xem dashboard tổng quan về doanh thu bán vé, tỷ lệ l
 - Xuất hóa đơn VAT (Nice-to-have) không nằm trong scope chính
 - Check-in QR thực hiện qua CMS web trên thiết bị di động hoặc tablet (không cần app riêng cho nhân viên)
 - Dashboard doanh thu/thống kê là Recommended, có thể triển khai ở giai đoạn sau của Phase 2
+
+## Backend Architecture Constraints
+
+Section này ghi lại các quyết định kỹ thuật bắt buộc để đảm bảo tính đúng đắn của luồng hold slot. Không phải implementation guide — là ràng buộc thiết kế phải giữ nguyên trong suốt quá trình build.
+
+### Slot capacity management
+
+- **Atomic counter, không phải lock**: Capacity phải được quản lý bằng Redis atomic counter (`DECRBY`/`INCRBY`). Không dùng per-user key (`SETNX`) vì không kiểm soát được tổng số hold đồng thời trên cùng một slot.
+- **Counter pattern**: `slot:{slot_id}:available` giữ số lượng slot còn lại. Mỗi hold decrement 1; nếu kết quả < 0 thì INCRBY restore và trả về lỗi 409.
+- **Redis Persistence**: Phải bật AOF (Append Only File) cho Redis để không mất hold state khi Redis restart.
+
+### Hold lifecycle
+
+| Sự kiện | Hành động bắt buộc |
+|---|---|
+| Hold thành công | DECRBY counter + INSERT booking(HOLD) + set TTL 900s |
+| Khách bấm "Thanh toán" | EXPIRE reset lại 900s (gia hạn hold) |
+| Payment webhook SUCCESS | UPDATE CONFIRMED + DEL hold key ngay lập tức |
+| Payment webhook FAIL | Giữ nguyên hold, khách retry trong thời gian còn lại |
+| TTL expire | INCRBY restore counter + UPDATE booking EXPIRED (chỉ nếu status ≠ CONFIRMED) |
+| INSERT booking thất bại | INCRBY restore counter ngay lập tức (compensating) |
+
+### Webhook safety
+
+- **Idempotency**: Mỗi webhook phải kiểm tra `payment_transaction_id` đã xử lý chưa trước khi cập nhật. Ghi idempotency key vào DB sau khi xử lý thành công.
+- **Late webhook** (đến sau khi booking EXPIRED): Từ chối confirm, gọi API hoàn tiền của gateway ngay, ghi log để audit.
+- **Timeout tự xử lý**: Reconciliation job chạy mỗi 5 phút, truy vấn các booking ở trạng thái PENDING_PAYMENT quá 20 phút mà chưa có webhook → chủ động hỏi gateway về trạng thái giao dịch.
+
+### Booking state — nguồn sự thật duy nhất
+
+Backend là single source of truth cho trạng thái đơn. Frontend không được tự suy luận hay ghi state. Mọi thay đổi trạng thái đều phải đi qua backend API với đủ validation.
+
+Thứ tự trạng thái hợp lệ: `PENDING_HOLD → HOLD → PENDING_PAYMENT → CONFIRMED → CHECKED_IN`
+Terminal states (không chuyển tiếp được): `FAILED`, `EXPIRED`, `CANCELLED`
+Transition không hợp lệ (ví dụ CONFIRMED → HOLD) phải bị reject ở tầng service.
