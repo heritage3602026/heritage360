@@ -6,7 +6,8 @@
       "Bash(python3:*)",
       "mcp__figma-ui-mcp__figma_read",
       "mcp__figma-ui-mcp__figma_write",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(git:*)"
     ]
   }
 }
