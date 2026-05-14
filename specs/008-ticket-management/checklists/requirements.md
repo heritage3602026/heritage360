@@ -1,7 +1,7 @@
-# Specification Quality Checklist: Mua vé & Quản lý vé
+# Specification Quality Checklist: Ticket Management (008)
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-05-06
+**Created**: 2026-05-13
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,8 +31,7 @@
 
 ## Notes
 
-- All items passed validation on first iteration
-- Assumptions documented for: age thresholds, hold slot time, cancellation policy, payment gateways, reschedule policy
-- Scope clearly bounded: Must-have and Recommended features included; Nice-to-have items (waitlist, VAT, cash payment) explicitly excluded
-- ZaloPay listed as potential future addition, not in initial scope
-- **Clarification session 2026-05-06**: 5 questions asked and resolved — order scope per venue, refund mechanism, slot flexibility, check-in granularity, multi-language support
+- Spec bao gồm cả Module 1 (user mua vé) và Module 2 (admin CMS quản lý vé) từ hai BRD riêng biệt.
+- FR-027 (RBAC) kế thừa từ spec 007-cms-phan-quyen; cần đảm bảo alignment khi planning.
+- FR-010 (User Story 3 - My Tickets) đã được đặc tả ở spec 006-my-tickets; feature này chỉ bao gồm luồng mua mới.
+- Tất cả 30 functional requirements đã có acceptance scenario tương ứng.
