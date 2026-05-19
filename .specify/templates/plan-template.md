@@ -31,7 +31,17 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- **Spec-first clarity**: Plan references a completed spec with prioritized user
+  stories, measurable success criteria, assumptions, and unresolved clarifications.
+- **Independent user journeys**: MVP and later stories can be implemented and
+  validated independently, or dependencies are explicitly justified.
+- **Traceability**: Technical choices, contracts, entities, and tasks map back to
+  spec user stories, requirements, or documented decisions.
+- **Security/access/payment integrity**: Authentication, authorization, RBAC,
+  payment, ticket issuance, personal data, callback, and failure cases are covered
+  when relevant.
+- **Cross-repo handoff**: Affected surfaces and delivery repositories are named,
+  and planning ownership is clear for backend, mobile, CMS, or shared services.
 
 ## Project Structure
 
